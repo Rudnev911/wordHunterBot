@@ -6,10 +6,12 @@ import os
 import aiohttp
 from dotenv import load_dotenv
 import random
+import asyncio
 
 load_dotenv()
 token = os.getenv('TOKEN')
 token_weather = os.getenv('TOKEN_WEATHER')
+catToken = os.getenv('catToken')
 
 # Извлекаем chat_id и разные параметры пользователя
 def get_user_info(update: Update):
@@ -22,7 +24,7 @@ def get_user_info(update: Update):
     last_name = user.last_name or ''
     full_name = f'{first_name} {last_name}'.strip()
     ava_str = f'{user.username}{timestamp}'.strip()
-    ava_url = f'https://robohash.org/{ava_str}?set=set2'
+    ava_url = f'https://robohash.org/{ava_str}?set=set5' # Заменил монстров на человечков
     return chat_id, first_name, full_name, ava_url, user_id
 
 async def say_hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -33,8 +35,14 @@ async def say_hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_photo(chat_id=user_info[0], photo=user_info[3])
     elif text == 'Мой ID':
         await context.bot.send_message(chat_id=user_info[0], text=f'Твой ID: {user_info[4]}')
-    elif text == 'Мой IP':
-        await context.bot.send_message(chat_id=user_info[0], text='К сожалению, я не могу получить ваш IP адрес через Telegram API')
+    elif text == 'Фото кота':
+        await send_cat(update, context)
+    elif text == 'Мой IP': # Функция получения IP доработана
+        ip_address = await get_ip_address()
+        await context.bot.send_message(
+            chat_id=user_info[0],
+            text=f'Ваш IP адрес: {ip_address}'
+        )
     elif text == 'Погода сегодня':
         await request_location(update, context)
     else:
@@ -52,6 +60,48 @@ async def request_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text='Пожалуйста, поделитесь своей геолокацией:',
         reply_markup=location_keyboard
     )
+
+#Get cat photo
+async def get_cat_photo() -> str:
+    url = "https://api.thecatapi.com/v1/images/search"
+    
+    headers = {
+        'x-api-key': catToken  # Добавляем API ключ в заголовки
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            return data[0]['url']  # Возвращаем URL изображения кота
+
+#send cat photo  
+async def send_cat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_info = get_user_info(update)
+    
+    try:
+        # Получаем URL фото кота
+        cat_url = await get_cat_photo()
+        
+        if cat_url:
+            # Отправляем фото кота
+            await context.bot.send_photo(
+                chat_id=user_info[0],
+                photo=cat_url,
+                caption="Вот ваш котик! 🐱"
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=user_info[0],
+                text="Не удалось получить фото кота 😿"
+            )
+            
+    except Exception as e:
+        await context.bot.send_message(
+            chat_id=user_info[0],
+            text=f"Произошла ошибка: {str(e)}"
+        )
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     location = update.message.location
@@ -98,12 +148,13 @@ async def get_weather(lat: float, lon: float) -> str:
             f'Ветер: {wind_speed} м/с\n'
             f'{wind_recom}')
 
+#keybord
 async def wake_up(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_info = get_user_info(update)
     button = ReplyKeyboardMarkup([
         ['Погода сегодня', 'Сгенери аватар'],
         ['Мой ID', 'Мой IP'],
-        ['/random_digit']
+        ['Фото кота' ,'/random_digit']
     ], resize_keyboard=True)
     
     await context.bot.send_message(
@@ -125,6 +176,23 @@ async def miid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
              f"• Chat ID: {chat_id}\n"
              f"• Имя: {first_name}\n"
     )
+
+#Get IP address - teper tochno
+async def get_ip_address() -> str:
+    url = "https://api.ipify.org?format=json"
+    
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, timeout=5) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data['ip']
+                return "Ошибка при получении IP"
+        except asyncio.TimeoutError:
+            return "Таймаут запроса"
+        except Exception as e:
+            return f"Ошибка: {str(e)}"
+
 
 async def random_digit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_info = get_user_info(update)
